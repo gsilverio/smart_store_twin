@@ -1,0 +1,984 @@
+﻿using Microsoft.EntityFrameworkCore;
+using SmartStoreTwinApi.Domain.Entities;
+using SmartStoreTwinApi.Domain.Enums;
+using SmartStoreTwinApi.Infrastructure.Persistence;
+
+namespace SmartStoreTwinApi.Application;
+
+public class MotorGemeoDigital
+{
+    private readonly EstadoGemeoStore _store;
+    private readonly AppDbContext _db;
+
+    public MotorGemeoDigital(EstadoGemeoStore store, AppDbContext db)
+    {
+        _store = store;
+        _db = db;
+    }
+
+    public EstadoGemeoDigital ObterEstado() => _store.ObterSnapshot();
+
+    public EstadoGemeoDigital Reiniciar() => _store.Reiniciar();
+
+    public List<LeituraSensorHistorico> ObterLeiturasSensores(int take = 200)
+    {
+        var estadoId = _store.ObterEstadoId();
+        return _db.LeiturasSensores
+            .AsNoTracking()
+            .Where(x => x.EstadoGemeoDigitalId == estadoId)
+            .OrderByDescending(x => x.CriadoEm)
+            .Take(Math.Clamp(take, 1, 500))
+            .ToList();
+    }
+
+    public List<ProdutoOperacional> ObterProdutosOperacionais()
+    {
+        var estadoId = _store.ObterEstadoId();
+        return _db.ProdutosOperacionais
+            .AsNoTracking()
+            .Where(x => x.EstadoGemeoDigitalId == estadoId)
+            .OrderBy(x => x.Categoria)
+            .ThenBy(x => x.Nome)
+            .ToList();
+    }
+
+    public List<RotinaAutomatica> ObterRotinasAutomaticas()
+    {
+        var estadoId = _store.ObterEstadoId();
+        return _db.RotinasAutomaticas
+            .AsNoTracking()
+            .Where(x => x.EstadoGemeoDigitalId == estadoId)
+            .OrderBy(x => x.Nome)
+            .ToList();
+    }
+
+    public EstadoGemeoDigital IniciarSimulacao()
+    {
+        var estado = CarregarEstadoRaiz();
+
+        estado.SimulacaoAtiva = true;
+        estado.UltimoTickEm = DateTime.UtcNow;
+        estado.AtualizadoEm = DateTime.UtcNow;
+
+        AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.EstadoAlterado, "Simulacao continua da loja iniciada.", "Simulador");
+        _db.SalvarComRetentativas();
+        return _store.ObterSnapshot();
+    }
+
+    public EstadoGemeoDigital PararSimulacao()
+    {
+        var estado = CarregarEstadoRaiz();
+        var clientes = ClientesAtivos(estado.Id).ToList();
+
+        estado.SimulacaoAtiva = false;
+        estado.PessoasNaLoja = 0;
+        estado.PerfilSimulacao = "Operacao normal";
+        estado.MultiplicadorFluxo = 1m;
+        estado.FalhaGeladeiraAtiva = false;
+        estado.CheckoutIndisponivel = false;
+        estado.PicoEnergiaAtivo = false;
+        estado.AltaDemandaBebidas = false;
+        estado.DivergenciaPagamentosAtiva = false;
+        estado.AtualizadoEm = DateTime.UtcNow;
+
+        foreach (var cliente in clientes)
+        {
+            cliente.Etapa = "Finalizado";
+            cliente.Status = "Cliente removido da loja ao pausar a simulacao";
+            cliente.ZonaAtualId = null;
+            cliente.ZonaAtualNome = null;
+            cliente.AtualizadoEm = DateTime.UtcNow;
+        }
+
+        var circulacao = BuscarZona(estado.Id, TipoZona.Circulacao);
+        if (circulacao is not null)
+        {
+            circulacao.QuantidadePessoas = 0;
+            circulacao.AtualizadoEm = DateTime.UtcNow;
+        }
+
+        AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.EstadoAlterado, "Simulacao continua da loja pausada.", "Simulador");
+        RecalcularSaudeOperacional(estado.Id);
+        SalvarComRetentativas();
+        return _store.ObterSnapshot();
+    }
+
+    public EstadoGemeoDigital ExecutarTickSimulacao()
+    {
+        using var transacao = _db.Database.BeginTransaction();
+
+        var estado = CarregarEstadoRaiz();
+        if (!estado.SimulacaoAtiva)
+        {
+            AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.EstadoAlterado, "Tick ignorado porque a simulacao continua esta pausada.", "Simulador");
+            _db.SalvarComRetentativas();
+            transacao.Commit();
+            return _store.ObterSnapshot();
+        }
+
+        estado.TickAtual++;
+        estado.UltimoTickEm = DateTime.UtcNow;
+        estado.AtualizadoEm = DateTime.UtcNow;
+
+        var zonas = _db.ZonasLoja.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var produtos = _db.ProdutosOperacionais.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var sensores = _db.SensoresLoja.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var atuadores = _db.AtuadoresLoja.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var clientes = _db.ClientesSimulados
+            .Include(x => x.Itens)
+            .Where(x => x.EstadoGemeoDigitalId == estado.Id && x.Etapa != "Finalizado")
+            .OrderBy(x => x.CriadoEm)
+            .Take(18)
+            .ToList();
+
+        TalvezEntrarNovoCliente(estado, zonas, clientes);
+
+        // Recarrega lista caso tenha entrado cliente novo no mesmo tick.
+        clientes = _db.ClientesSimulados
+            .Include(x => x.Itens)
+            .Where(x => x.EstadoGemeoDigitalId == estado.Id && x.Etapa != "Finalizado")
+            .OrderBy(x => x.CriadoEm)
+            .Take(18)
+            .ToList();
+
+        AvancarClientes(estado, zonas, produtos, clientes);
+        AtualizarFluxo(estado, zonas, clientes);
+        AtualizarEnergia(estado, zonas, sensores);
+        SincronizarEstoqueDasZonas(estado.Id, zonas, produtos);
+        RegistrarLeiturasAutomaticas(estado, zonas, sensores, produtos);
+        ExecutarRotinasAutomaticas(estado, zonas, produtos, atuadores);
+        AtualizarRelatorioGerencial(estado, produtos);
+        RecalcularSaudeOperacional(estado.Id);
+
+        _db.SalvarComRetentativas();
+        transacao.Commit();
+        return _store.ObterSnapshot();
+    }
+
+    public EstadoGemeoDigital SimularCenario(string cenario)
+    {
+        using var transacao = _db.Database.BeginTransaction();
+        var estado = CarregarEstadoRaiz();
+        var zonas = _db.ZonasLoja.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var produtos = _db.ProdutosOperacionais.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var sensores = _db.SensoresLoja.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var atuadores = _db.AtuadoresLoja.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+
+        AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.CenarioSimulado, $"Cenario simulado iniciado: {cenario}", "Simulador");
+
+        switch (cenario.ToLowerInvariant())
+        {
+            case "horario-pico":
+                AplicarCenarioHorarioPico(estado, zonas, atuadores, sensores);
+                break;
+            case "falha-geladeira":
+                AplicarCenarioFalhaGeladeira(estado, zonas, atuadores, sensores);
+                break;
+            case "checkout-fora-do-ar":
+                AplicarCenarioCheckoutForaDoAr(estado, zonas, atuadores, sensores);
+                break;
+            case "divergencia-pagamento":
+                AplicarCenarioDivergenciaPagamento(estado, zonas, produtos, atuadores, sensores);
+                break;
+            case "pico-energia":
+                AplicarCenarioPicoEnergia(estado, zonas, atuadores, sensores);
+                break;
+            case "estoque-critico":
+                AplicarCenarioEstoqueCritico(estado, zonas, produtos, atuadores, sensores);
+                break;
+            default:
+                AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.EstadoAlterado, "Cenario nao reconhecido.", "Simulador");
+                break;
+        }
+
+        estado.AtualizadoEm = DateTime.UtcNow;
+        ExecutarRotinasAutomaticas(estado, zonas, produtos, atuadores);
+        AtualizarRelatorioGerencial(estado, produtos);
+        RecalcularSaudeOperacional(estado.Id);
+        _db.SalvarComRetentativas();
+        transacao.Commit();
+        return _store.ObterSnapshot();
+    }
+
+    public EstadoGemeoDigital AcionarAtuador(Guid atuadorId, string acao, string origem = "Operador")
+    {
+        var estado = CarregarEstadoRaiz();
+        var atuador = _db.AtuadoresLoja.FirstOrDefault(x => x.EstadoGemeoDigitalId == estado.Id && x.Id == atuadorId);
+
+        if (atuador is null)
+        {
+            AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.AcaoAtuador, "Tentativa de acionar um atuador inexistente.", origem);
+            SalvarComRetentativas();
+            return _store.ObterSnapshot();
+        }
+
+        AplicarAcaoAtuador(estado.Id, atuador, acao);
+        AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.AcaoAtuador, $"Atuador acionado: {atuador.Nome}. Acao: {acao}.", origem);
+        RecalcularSaudeOperacional(estado.Id);
+        _db.SalvarComRetentativas();
+        return _store.ObterSnapshot();
+    }
+
+    public EstadoGemeoDigital ResolverAlerta(Guid alertaId)
+    {
+        var estado = CarregarEstadoRaiz();
+        var alerta = _db.AlertasLoja.FirstOrDefault(x => x.EstadoGemeoDigitalId == estado.Id && x.Id == alertaId);
+
+        if (alerta is not null)
+        {
+            alerta.Status = StatusAlerta.Resolvido;
+            alerta.ResolvidoEm = DateTime.UtcNow;
+            AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.AlertaResolvido, $"Alerta resolvido: {alerta.Titulo}.", "Operador");
+            RecalcularSaudeOperacional(estado.Id);
+            SalvarComRetentativas();
+        }
+
+        return _store.ObterSnapshot();
+    }
+
+    public EstadoGemeoDigital RegistrarLeituraSensor(Guid sensorId, decimal valor, string observacao = "Leitura simulada")
+    {
+        using var transacao = _db.Database.BeginTransaction();
+        var estado = CarregarEstadoRaiz();
+        var sensor = _db.SensoresLoja.FirstOrDefault(x => x.EstadoGemeoDigitalId == estado.Id && x.Id == sensorId);
+
+        if (sensor is null || !sensor.Ativo)
+        {
+            AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.LeituraSensor, "Leitura ignorada: sensor inexistente ou inativo.", "Sensor simulado");
+            SalvarComRetentativas();
+            transacao.Commit();
+            return _store.ObterSnapshot();
+        }
+
+        var zona = _db.ZonasLoja.FirstOrDefault(x => x.EstadoGemeoDigitalId == estado.Id && x.Id == sensor.ZonaId);
+        if (zona is null)
+            return _store.ObterSnapshot();
+
+        sensor.UltimaLeituraEm = DateTime.UtcNow;
+        AplicarLeitura(estado, sensor, zona, valor);
+        RegistrarHistoricoLeitura(estado.Id, sensor, zona, valor, observacao);
+        AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.LeituraSensor, $"Sensor {sensor.Nome} registrou valor {valor}. {observacao}", "Sensor simulado");
+
+        var zonas = _db.ZonasLoja.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var produtos = _db.ProdutosOperacionais.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var atuadores = _db.AtuadoresLoja.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+
+        SincronizarEstoqueDasZonas(estado.Id, zonas, produtos);
+        ExecutarRotinasAutomaticas(estado, zonas, produtos, atuadores);
+        AtualizarRelatorioGerencial(estado, produtos);
+        RecalcularSaudeOperacional(estado.Id);
+        estado.AtualizadoEm = DateTime.UtcNow;
+
+        SalvarComRetentativas();
+        transacao.Commit();
+        return _store.ObterSnapshot();
+    }
+
+    public EstadoGemeoDigital GerarRelatorioFechamentoDia()
+    {
+        var estado = CarregarEstadoRaiz();
+        var produtos = _db.ProdutosOperacionais.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        AtualizarRelatorioGerencial(estado, produtos, true);
+        AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.RecomendacaoGerada, "Relatorio gerencial de fechamento do dia foi gerado pelo gemeo digital.", "Gemeo digital");
+        SalvarComRetentativas();
+        return _store.ObterSnapshot();
+    }
+
+    private EstadoGemeoDigital CarregarEstadoRaiz()
+    {
+        var estadoId = _store.ObterEstadoId();
+        return _db.EstadosGemeoDigital.First(x => x.Id == estadoId);
+    }
+
+    private IQueryable<ClienteSimulado> ClientesAtivos(Guid estadoId)
+    {
+        return _db.ClientesSimulados.Where(x => x.EstadoGemeoDigitalId == estadoId && x.Etapa != "Finalizado");
+    }
+
+    private ZonaLoja? BuscarZona(Guid estadoId, TipoZona tipo)
+    {
+        return _db.ZonasLoja.FirstOrDefault(x => x.EstadoGemeoDigitalId == estadoId && x.Tipo == tipo);
+    }
+
+    private ZonaLoja? BuscarZonaPorNome(List<ZonaLoja> zonas, string trecho)
+    {
+        return zonas.FirstOrDefault(x => x.Nome.Contains(trecho, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void TalvezEntrarNovoCliente(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<ClienteSimulado> clientes)
+    {
+        if (clientes.Count >= 12)
+            return;
+
+        var entrada = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Entrada);
+        if (entrada is null || entrada.Status == StatusZona.Bloqueado)
+            return;
+
+        var chance = estado.PessoasNaLoja < 3 ? 0.75 : 0.45;
+        if (Random.Shared.NextDouble() > chance)
+            return;
+
+        var numero = estado.TickAtual + clientes.Count + Random.Shared.Next(10, 99);
+        var cliente = new ClienteSimulado
+        {
+            EstadoGemeoDigitalId = estado.Id,
+            Codigo = $"C{numero:000}",
+            Nome = $"Cliente {numero:000}",
+            Etapa = "Entrada",
+            Status = "Entrando na loja",
+            ZonaAtualId = entrada.Id,
+            ZonaAtualNome = entrada.Nome,
+            CriadoEm = DateTime.UtcNow,
+            AtualizadoEm = DateTime.UtcNow
+        };
+
+        _db.ClientesSimulados.Add(cliente);
+        AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.EstadoAlterado, $"{cliente.Nome} entrou na loja.", "Sensor de presenca");
+    }
+
+    private void AvancarClientes(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<ProdutoOperacional> produtos, List<ClienteSimulado> clientes)
+    {
+        foreach (var cliente in clientes)
+        {
+            switch (cliente.Etapa)
+            {
+                case "Entrada":
+                    MoverCliente(cliente, zonas.FirstOrDefault(x => x.Tipo == TipoZona.Circulacao), "Circulacao", "Cliente circulando pela loja");
+                    break;
+                case "Circulacao":
+                    var destino = EscolherZonaProduto(zonas);
+                    MoverCliente(cliente, destino, destino?.Nome.Contains("Bebidas") == true ? "Bebidas" : destino?.Nome.Contains("Snacks") == true ? "Snacks" : "Geladeira", "Cliente analisando produtos");
+                    break;
+                case "Bebidas":
+                case "Snacks":
+                case "Geladeira":
+                    RetirarProduto(cliente, produtos, cliente.Etapa);
+                    MoverCliente(cliente, zonas.FirstOrDefault(x => x.Tipo == TipoZona.Checkout), "Checkout", "Cliente indo para pagamento");
+                    break;
+                case "Checkout":
+                    FinalizarCliente(estado, cliente, produtos);
+                    break;
+            }
+        }
+    }
+
+    private ZonaLoja? EscolherZonaProduto(List<ZonaLoja> zonas)
+    {
+        var sorteio = Random.Shared.Next(0, 100);
+        if (sorteio < 42)
+            return BuscarZonaPorNome(zonas, "Bebidas");
+        if (sorteio < 72)
+            return BuscarZonaPorNome(zonas, "Snacks");
+        return zonas.FirstOrDefault(x => x.Tipo == TipoZona.Geladeira);
+    }
+
+    private void MoverCliente(ClienteSimulado cliente, ZonaLoja? zona, string etapa, string status)
+    {
+        if (zona is null)
+            return;
+
+        cliente.Etapa = etapa;
+        cliente.Status = status;
+        cliente.ZonaAtualId = zona.Id;
+        cliente.ZonaAtualNome = zona.Nome;
+        cliente.AtualizadoEm = DateTime.UtcNow;
+    }
+
+    private void RetirarProduto(ClienteSimulado cliente, List<ProdutoOperacional> produtos, string etapa)
+    {
+        var categoria = etapa == "Bebidas" ? "Bebidas" : etapa == "Snacks" ? "Snacks" : "Refrigerados";
+        var produto = produtos
+            .Where(x => x.Categoria == categoria && x.EstoqueAtual > 0)
+            .OrderBy(_ => Random.Shared.Next())
+            .FirstOrDefault();
+
+        if (produto is null)
+            return;
+
+        produto.EstoqueAtual = Math.Max(0, produto.EstoqueAtual - 1);
+        produto.RetiradosHoje++;
+        produto.AtualizadoEm = DateTime.UtcNow;
+
+        if (categoria == "Bebidas") cliente.BebidasSelecionadas++;
+        if (categoria == "Snacks") cliente.SnacksSelecionados++;
+        if (categoria == "Refrigerados") cliente.RefrigeradosSelecionados++;
+
+        cliente.ValorCarrinho += produto.PrecoVenda;
+        cliente.Itens.Add(new ItemClienteSimulado
+        {
+            ClienteSimuladoId = cliente.Id,
+            ProdutoId = produto.Id,
+            ProdutoNome = produto.Nome,
+            Categoria = produto.Categoria,
+            Quantidade = 1,
+            ValorUnitario = produto.PrecoVenda
+        });
+
+        cliente.Status = $"Produto retirado: {produto.Nome}";
+        cliente.AtualizadoEm = DateTime.UtcNow;
+    }
+
+    private void FinalizarCliente(EstadoGemeoDigital estado, ClienteSimulado cliente, List<ProdutoOperacional> produtos)
+    {
+        var divergencia = cliente.Itens.Count > 0 && Random.Shared.NextDouble() < 0.12;
+        cliente.PossuiDivergencia = divergencia;
+        cliente.PagamentoConcluido = !divergencia;
+        cliente.Etapa = "Finalizado";
+        cliente.ZonaAtualId = null;
+        cliente.ZonaAtualNome = null;
+        cliente.AtualizadoEm = DateTime.UtcNow;
+
+        if (divergencia)
+        {
+            cliente.Status = "Cliente saiu com divergencia entre retirada e pagamento";
+            estado.PerdaFinanceiraEstimada += cliente.ValorCarrinho;
+            foreach (var item in cliente.Itens)
+            {
+                var produto = produtos.FirstOrDefault(x => x.Id == item.ProdutoId);
+                if (produto is not null)
+                    produto.PerdidosHoje += item.Quantidade;
+            }
+
+            CriarAlerta(estado.Id, "Divergencia entre retirada e pagamento", "A simulacao detectou produtos retirados sem pagamento equivalente no checkout.", SeveridadeAlerta.Critica, null, "Revisar eventos do checkout e conferir estoque fisico da prateleira.", cliente.ValorCarrinho);
+            AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.AlertaCriado, $"Divergencia operacional detectada no {cliente.Nome}.", "Conciliacao fisico x digital");
+            return;
+        }
+
+        cliente.Status = "Pagamento aprovado e cliente saiu da loja";
+        estado.ReceitaEstimadaHoje += cliente.ValorCarrinho;
+        estado.ProdutosVendidosHoje += cliente.Itens.Sum(x => x.Quantidade);
+        foreach (var item in cliente.Itens)
+        {
+            var produto = produtos.FirstOrDefault(x => x.Id == item.ProdutoId);
+            if (produto is not null)
+                produto.VendidosHoje += item.Quantidade;
+        }
+
+        AdicionarEvento(estado.Id, TipoEventoLinhaDoTempo.EstadoAlterado, $"{cliente.Nome} finalizou pagamento de R$ {cliente.ValorCarrinho:N2}.", "Checkout");
+    }
+
+    private void AtualizarFluxo(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<ClienteSimulado> clientes)
+    {
+        var ativos = clientes.Count(x => x.Etapa != "Finalizado");
+        estado.PessoasNaLoja = ativos;
+
+        foreach (var zona in zonas)
+        {
+            zona.QuantidadePessoas = clientes.Count(c => c.Etapa != "Finalizado" && c.ZonaAtualId == zona.Id);
+            zona.AtualizadoEm = DateTime.UtcNow;
+        }
+
+        var entrada = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Entrada);
+        if (entrada is not null && ativos > estado.CapacidadeRecomendada)
+        {
+            entrada.Status = StatusZona.Atencao;
+            entrada.RiscoAtual = "Fluxo acima da capacidade recomendada.";
+            CriarAlerta(estado.Id, "Lotacao acima do recomendado", "A loja esta com fluxo acima da capacidade operacional recomendada.", SeveridadeAlerta.Alta, entrada.Id, "Limitar entrada temporariamente.", 0);
+        }
+    }
+
+    private void AtualizarEnergia(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<SensorLoja> sensores)
+    {
+        var baseEnergia = 4.2m + (estado.PessoasNaLoja * 0.18m);
+        estado.ConsumoEnergiaTotalKwh = Math.Round(baseEnergia, 2);
+        estado.CustoEnergiaEstimadoHoje = Math.Round(estado.ConsumoEnergiaTotalKwh * 0.92m, 2);
+
+        var circulacao = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Circulacao);
+        if (circulacao is not null)
+        {
+            circulacao.ConsumoEnergiaKwh = estado.ConsumoEnergiaTotalKwh;
+            circulacao.AtualizadoEm = DateTime.UtcNow;
+        }
+    }
+
+    private void SincronizarEstoqueDasZonas(Guid estadoId, List<ZonaLoja> zonas, List<ProdutoOperacional> produtos)
+    {
+        foreach (var zona in zonas.Where(z => z.Tipo == TipoZona.Prateleira || z.Tipo == TipoZona.Geladeira))
+        {
+            var produtosZona = produtos.Where(p => p.ZonaId == zona.Id).ToList();
+            if (produtosZona.Count == 0) continue;
+
+            zona.EstoqueFisico = produtosZona.Sum(p => p.EstoqueAtual);
+            zona.EstoqueEsperado = produtosZona.Sum(p => p.EstoqueAtual + p.PerdidosHoje);
+            zona.Status = produtosZona.Any(p => p.EstoqueAtual <= p.EstoqueMinimo) ? StatusZona.Atencao : zona.Status == StatusZona.Critico ? zona.Status : StatusZona.Normal;
+            zona.RiscoAtual = produtosZona.Any(p => p.EstoqueAtual <= p.EstoqueMinimo)
+                ? "Um ou mais produtos desta zona estao abaixo do estoque minimo."
+                : zona.RiscoAtual;
+            zona.AtualizadoEm = DateTime.UtcNow;
+        }
+    }
+
+    private void RegistrarLeiturasAutomaticas(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<SensorLoja> sensores, List<ProdutoOperacional> produtos)
+    {
+        foreach (var sensor in sensores.Where(s => s.Ativo))
+        {
+            var zona = zonas.FirstOrDefault(z => z.Id == sensor.ZonaId);
+            if (zona is null) continue;
+
+            decimal valor = sensor.Tipo switch
+            {
+                TipoSensor.Presenca => estado.PessoasNaLoja,
+                TipoSensor.Temperatura => zona.TemperaturaCelsius ?? 4,
+                TipoSensor.Energia => estado.ConsumoEnergiaTotalKwh,
+                TipoSensor.PesoPrateleira => produtos.Where(p => p.ZonaId == zona.Id).Sum(p => p.EstoqueAtual),
+                TipoSensor.Checkout => zona.Status == StatusZona.Manutencao ? 2 : zona.QuantidadePessoas > 0 ? 1 : 0,
+                TipoSensor.Porta => zona.Status == StatusZona.Bloqueado ? 2 : 1,
+                _ => 0
+            };
+
+            sensor.UltimaLeituraEm = DateTime.UtcNow;
+            RegistrarHistoricoLeitura(estado.Id, sensor, zona, valor, "Leitura automatica gerada pelo tick da simulacao viva");
+        }
+    }
+
+    private void ExecutarRotinasAutomaticas(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<ProdutoOperacional> produtos, List<AtuadorLoja> atuadores)
+    {
+        var rotinas = _db.RotinasAutomaticas.Where(x => x.EstadoGemeoDigitalId == estado.Id).ToList();
+        var agora = DateTime.UtcNow;
+
+        var rotinaEnergia = rotinas.FirstOrDefault(x => x.Nome.Contains("energetica", StringComparison.OrdinalIgnoreCase));
+        if (rotinaEnergia is not null)
+        {
+            rotinaEnergia.UltimaExecucaoEm = agora;
+            if (estado.PessoasNaLoja <= 2)
+            {
+                rotinaEnergia.Status = "Executada";
+                rotinaEnergia.Resultado = "Baixo fluxo identificado. Gemeo digital reduziu consumo do ambiente.";
+                rotinaEnergia.AcaoExecutada = "Iluminacao em modo economico";
+                rotinaEnergia.EconomiaEnergiaEstimadaKwh += 0.18m;
+                estado.EconomiaEnergiaEstimadaKwh += 0.18m;
+                var iluminacao = atuadores.FirstOrDefault(a => a.Tipo == TipoAtuador.Iluminacao);
+                if (iluminacao is not null) AplicarAcaoAtuador(estado.Id, iluminacao, "Modo economico");
+            }
+            else
+            {
+                rotinaEnergia.Status = "Monitorando";
+                rotinaEnergia.Resultado = "Fluxo atual nao permite reducao agressiva de energia.";
+            }
+        }
+
+        var rotinaEstoque = rotinas.FirstOrDefault(x => x.Nome.Contains("ruptura", StringComparison.OrdinalIgnoreCase));
+        if (rotinaEstoque is not null)
+        {
+            rotinaEstoque.UltimaExecucaoEm = agora;
+            foreach (var produto in produtos)
+            {
+                var consumoHora = Math.Max(1m, produto.VendidosHoje / 8m);
+                produto.PrevisaoRupturaHoras = produto.EstoqueAtual <= 0 ? 0 : Math.Round(produto.EstoqueAtual / consumoHora, 1);
+                produto.SugestaoCompra = produto.EstoqueAtual <= produto.EstoqueMinimo ? Math.Max(0, produto.EstoqueMaximo - produto.EstoqueAtual) : 0;
+                produto.MotivoSugestao = produto.SugestaoCompra > 0 ? "Estoque abaixo do minimo ou risco de ruptura no periodo simulado." : null;
+                produto.AtualizadoEm = agora;
+            }
+
+            var criticos = produtos.Count(p => p.SugestaoCompra > 0);
+            rotinaEstoque.Status = criticos > 0 ? "Acao recomendada" : "Normal";
+            rotinaEstoque.Resultado = criticos > 0
+                ? $"{criticos} produto(s) precisam de reposicao planejada."
+                : "Nenhum produto com risco imediato de ruptura.";
+            rotinaEstoque.AcaoExecutada = criticos > 0 ? "Gerar sugestao de compra" : null;
+        }
+    }
+
+    private void AtualizarRelatorioGerencial(EstadoGemeoDigital estado, List<ProdutoOperacional> produtos, bool fechamento = false)
+    {
+        var relatorio = _db.RelatoriosGerenciais
+            .Include(x => x.RecomendacoesCompra)
+            .FirstOrDefault(x => x.EstadoGemeoDigitalId == estado.Id);
+
+        if (relatorio is null)
+        {
+            relatorio = new RelatorioGerencialDia { EstadoGemeoDigitalId = estado.Id };
+            _db.RelatoriosGerenciais.Add(relatorio);
+        }
+
+        relatorio.GeradoEm = DateTime.UtcNow;
+        relatorio.ProdutosVendidos = produtos.Sum(p => p.VendidosHoje);
+        relatorio.ProdutosRetirados = produtos.Sum(p => p.RetiradosHoje);
+        relatorio.ProdutosPerdidos = produtos.Sum(p => p.PerdidosHoje);
+        relatorio.ReceitaEstimada = produtos.Sum(p => p.VendidosHoje * p.PrecoVenda);
+        relatorio.PerdaEstimada = produtos.Sum(p => p.PerdidosHoje * p.PrecoVenda);
+        relatorio.ConsumoEnergiaKwh = estado.ConsumoEnergiaTotalKwh;
+        relatorio.CustoEnergiaEstimado = estado.CustoEnergiaEstimadoHoje;
+        relatorio.EconomiaEnergiaEstimadaKwh = estado.EconomiaEnergiaEstimadaKwh;
+        relatorio.AlertasAbertos = _db.AlertasLoja.Count(a => a.EstadoGemeoDigitalId == estado.Id && a.Status == StatusAlerta.Aberto);
+        relatorio.AlertasCriticos = _db.AlertasLoja.Count(a => a.EstadoGemeoDigitalId == estado.Id && a.Status == StatusAlerta.Aberto && a.Severidade == SeveridadeAlerta.Critica);
+        relatorio.Diagnostico = GerarDiagnosticoRelatorio(relatorio, fechamento);
+
+        foreach (var produto in produtos)
+        {
+            var rec = relatorio.RecomendacoesCompra.FirstOrDefault(r => r.Produto == produto.Nome);
+            if (rec is null)
+            {
+                rec = new RecomendacaoCompra
+                {
+                    RelatorioGerencialDiaId = relatorio.Id,
+                    Produto = produto.Nome,
+                    Categoria = produto.Categoria
+                };
+                relatorio.RecomendacoesCompra.Add(rec);
+            }
+
+            rec.EstoqueAtual = produto.EstoqueAtual;
+            rec.EstoqueMinimo = produto.EstoqueMinimo;
+            rec.QuantidadeSugerida = produto.SugestaoCompra;
+            rec.Motivo = produto.SugestaoCompra > 0 ? produto.MotivoSugestao ?? "Reposicao sugerida pelo gemeo digital." : "Sem compra sugerida no momento.";
+            rec.CustoEstimado = produto.SugestaoCompra * produto.CustoReposicao;
+        }
+    }
+
+    private string GerarDiagnosticoRelatorio(RelatorioGerencialDia relatorio, bool fechamento)
+    {
+        if (relatorio.AlertasCriticos > 0)
+            return "Operacao critica: existem alertas criticos que exigem verificacao antes da continuidade da loja autonoma.";
+
+        if (relatorio.ProdutosPerdidos > 0)
+            return "Operacao com perdas: o gemeo digital identificou divergencias entre retirada fisica e pagamento.";
+
+        if (relatorio.RecomendacoesCompra.Any(r => r.QuantidadeSugerida > 0))
+            return "Operacao estavel, mas com necessidade de reposicao planejada para evitar ruptura de estoque.";
+
+        return fechamento
+            ? "Fechamento positivo: operacao saudavel, sem rupturas criticas e com consumo energetico controlado."
+            : "Operacao monitorada em tempo real. Sem riscos criticos no momento.";
+    }
+
+    private void RecalcularSaudeOperacional(Guid estadoId)
+    {
+        var estado = _db.EstadosGemeoDigital.First(x => x.Id == estadoId);
+        var alertas = _db.AlertasLoja.Where(a => a.EstadoGemeoDigitalId == estadoId && a.Status == StatusAlerta.Aberto).ToList();
+        var pontuacao = 100;
+
+        foreach (var alerta in alertas)
+        {
+            pontuacao -= alerta.Severidade switch
+            {
+                SeveridadeAlerta.Baixa => 5,
+                SeveridadeAlerta.Media => 10,
+                SeveridadeAlerta.Alta => 18,
+                SeveridadeAlerta.Critica => 28,
+                _ => 0
+            };
+        }
+
+        if (estado.PessoasNaLoja > estado.CapacidadeRecomendada) pontuacao -= 10;
+        if (estado.ConsumoEnergiaTotalKwh > 8) pontuacao -= 8;
+        if (estado.PerdaFinanceiraEstimada > 0) pontuacao -= 8;
+
+        estado.SaudeOperacional = Math.Clamp(pontuacao, 0, 100);
+        estado.AtualizadoEm = DateTime.UtcNow;
+    }
+
+    private void RegistrarHistoricoLeitura(Guid estadoId, SensorLoja sensor, ZonaLoja zona, decimal valor, string observacao)
+    {
+        _db.LeiturasSensores.Add(new LeituraSensorHistorico
+        {
+            EstadoGemeoDigitalId = estadoId,
+            SensorId = sensor.Id,
+            SensorNome = sensor.Nome,
+            TipoSensor = sensor.Tipo,
+            ZonaId = zona.Id,
+            ZonaNome = zona.Nome,
+            Valor = valor,
+            Unidade = ObterUnidadeSensor(sensor.Tipo),
+            Observacao = observacao,
+            CriadoEm = DateTime.UtcNow
+        });
+    }
+
+    private static string ObterUnidadeSensor(TipoSensor tipo) => tipo switch
+    {
+        TipoSensor.Presenca => "pessoas",
+        TipoSensor.PesoPrateleira => "unidades",
+        TipoSensor.Temperatura => "°C",
+        TipoSensor.Energia => "kWh",
+        TipoSensor.Checkout => "status",
+        TipoSensor.Porta => "status",
+        _ => "valor"
+    };
+
+    private void AdicionarEvento(Guid estadoId, TipoEventoLinhaDoTempo tipo, string descricao, string origem)
+    {
+        _db.EventosLinhaDoTempo.Add(new EventoLinhaDoTempo
+        {
+            EstadoGemeoDigitalId = estadoId,
+            Tipo = tipo,
+            Descricao = descricao,
+            Origem = origem,
+            CriadoEm = DateTime.UtcNow
+        });
+    }
+
+    private void CriarAlerta(Guid estadoId, string titulo, string descricao, SeveridadeAlerta severidade, Guid? zonaId, string recomendacao, decimal impacto)
+    {
+        var existe = _db.AlertasLoja.Any(a => a.EstadoGemeoDigitalId == estadoId && a.Titulo == titulo && a.Status == StatusAlerta.Aberto);
+        if (existe) return;
+
+        _db.AlertasLoja.Add(new AlertaLoja
+        {
+            EstadoGemeoDigitalId = estadoId,
+            Titulo = titulo,
+            Descricao = descricao,
+            Severidade = severidade,
+            ZonaId = zonaId,
+            Recomendacao = recomendacao,
+            ImpactoFinanceiroEstimado = impacto,
+            CriadoEm = DateTime.UtcNow
+        });
+
+        AdicionarEvento(estadoId, TipoEventoLinhaDoTempo.AlertaCriado, $"Alerta criado: {titulo}. Severidade: {severidade}.", "Motor de regras");
+        AdicionarEvento(estadoId, TipoEventoLinhaDoTempo.RecomendacaoGerada, $"Recomendacao gerada: {recomendacao}", "Motor de regras");
+    }
+
+    private void AplicarLeitura(EstadoGemeoDigital estado, SensorLoja sensor, ZonaLoja zona, decimal valor)
+    {
+        switch (sensor.Tipo)
+        {
+            case TipoSensor.Presenca:
+                estado.PessoasNaLoja = Math.Max(0, (int)valor);
+                zona.QuantidadePessoas = estado.PessoasNaLoja;
+                if (estado.PessoasNaLoja > estado.CapacidadeRecomendada)
+                    CriarAlerta(estado.Id, "Lotacao acima do recomendado", "A leitura do sensor de presenca indicou excesso de pessoas na loja.", SeveridadeAlerta.Alta, zona.Id, "Limitar entrada temporariamente.", 0);
+                break;
+            case TipoSensor.Temperatura:
+                zona.TemperaturaCelsius = valor;
+                if (valor >= 10)
+                {
+                    zona.Status = StatusZona.Critico;
+                    zona.RiscoAtual = "Temperatura critica para produtos pereciveis.";
+                    estado.PerdaFinanceiraEstimada += 240;
+                    CriarAlerta(estado.Id, "Temperatura critica na geladeira", "A leitura do sensor de temperatura ultrapassou o limite seguro.", SeveridadeAlerta.Critica, zona.Id, "Ativar refrigeracao maxima e verificar equipamento.", 240);
+                }
+                break;
+            case TipoSensor.Energia:
+                estado.ConsumoEnergiaTotalKwh = valor;
+                zona.ConsumoEnergiaKwh = valor;
+                if (valor > 8)
+                    CriarAlerta(estado.Id, "Consumo energetico anormal", "O sensor de energia detectou consumo acima do comportamento esperado.", SeveridadeAlerta.Media, zona.Id, "Ativar modo economico e verificar equipamentos.", 35);
+                break;
+            case TipoSensor.PesoPrateleira:
+                zona.EstoqueFisico = Math.Max(0, (int)valor);
+                if (zona.EstoqueFisico <= 6)
+                    CriarAlerta(estado.Id, $"Estoque critico em {zona.Nome}", "A leitura do sensor de peso indicou estoque abaixo do nivel recomendado.", SeveridadeAlerta.Media, zona.Id, "Realizar reposicao da prateleira.", 0);
+                break;
+            case TipoSensor.Checkout:
+                zona.Status = valor >= 2 ? StatusZona.Manutencao : valor == 1 ? StatusZona.Atencao : StatusZona.Normal;
+                if (valor >= 2)
+                    CriarAlerta(estado.Id, "Checkout fora do ar", "O sensor do checkout indicou falha no terminal de autoatendimento.", SeveridadeAlerta.Alta, zona.Id, "Colocar checkout em manutencao e limitar entrada temporariamente.", 80);
+                break;
+            case TipoSensor.Porta:
+                zona.Status = valor >= 2 ? StatusZona.Bloqueado : StatusZona.Normal;
+                break;
+        }
+
+        zona.AtualizadoEm = DateTime.UtcNow;
+        sensor.UltimaLeituraEm = DateTime.UtcNow;
+    }
+
+    private void AplicarAcaoAtuador(Guid estadoId, AtuadorLoja atuador, string acao)
+    {
+        atuador.Status = acao;
+        atuador.UltimaAcao = acao;
+        atuador.UltimaAcaoEm = DateTime.UtcNow;
+
+        var zona = _db.ZonasLoja.FirstOrDefault(x => x.EstadoGemeoDigitalId == estadoId && x.Id == atuador.ZonaId);
+        if (zona is null) return;
+
+        if (atuador.Tipo == TipoAtuador.PortaAutomatica)
+        {
+            zona.Status = acao.Contains("bloque", StringComparison.OrdinalIgnoreCase) ? StatusZona.Bloqueado : acao.Contains("limit", StringComparison.OrdinalIgnoreCase) ? StatusZona.Atencao : StatusZona.Normal;
+            zona.RiscoAtual = zona.Status == StatusZona.Normal ? null : $"Porta automatica em estado: {acao}.";
+        }
+        else if (atuador.Tipo == TipoAtuador.Refrigeracao)
+        {
+            zona.TemperaturaCelsius = acao.Contains("maxima", StringComparison.OrdinalIgnoreCase) ? Math.Max(4, (zona.TemperaturaCelsius ?? 10) - 3) : zona.TemperaturaCelsius;
+            zona.Status = acao.Contains("economico", StringComparison.OrdinalIgnoreCase) ? StatusZona.ModoEconomico : acao.Contains("maxima", StringComparison.OrdinalIgnoreCase) ? StatusZona.Atencao : StatusZona.Normal;
+            zona.RiscoAtual = acao;
+        }
+        else if (atuador.Tipo == TipoAtuador.Iluminacao)
+        {
+            zona.Status = acao.Contains("economico", StringComparison.OrdinalIgnoreCase) ? StatusZona.ModoEconomico : acao.Contains("alerta", StringComparison.OrdinalIgnoreCase) ? StatusZona.Atencao : StatusZona.Normal;
+            zona.RiscoAtual = zona.Status == StatusZona.Normal ? null : acao;
+        }
+        else if (atuador.Tipo == TipoAtuador.Checkout)
+        {
+            zona.Status = acao.Contains("manutencao", StringComparison.OrdinalIgnoreCase) ? StatusZona.Manutencao : acao.Contains("reiniciar", StringComparison.OrdinalIgnoreCase) ? StatusZona.Atencao : StatusZona.Normal;
+            zona.RiscoAtual = zona.Status == StatusZona.Normal ? null : acao;
+        }
+        else if (atuador.Tipo == TipoAtuador.PainelDigital)
+        {
+            zona.Status = acao.Contains("padrao", StringComparison.OrdinalIgnoreCase) ? StatusZona.Normal : StatusZona.Atencao;
+            zona.RiscoAtual = zona.Status == StatusZona.Normal ? null : acao;
+        }
+
+        zona.AtualizadoEm = DateTime.UtcNow;
+    }
+
+    private void AplicarCenarioHorarioPico(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<AtuadorLoja> atuadores, List<SensorLoja> sensores)
+    {
+        estado.PessoasNaLoja = 18;
+        var entrada = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Entrada);
+        var circulacao = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Circulacao);
+        var checkout = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Checkout);
+        if (entrada is not null) { entrada.Status = StatusZona.Atencao; entrada.RiscoAtual = "Entrada deve ser limitada temporariamente."; }
+        if (circulacao is not null) { circulacao.Status = StatusZona.Atencao; circulacao.QuantidadePessoas = 18; }
+        if (checkout is not null) { checkout.Status = StatusZona.Atencao; checkout.RiscoAtual = "Possivel formacao de fila."; }
+        CriarAlerta(estado.Id, "Lotacao acima do recomendado", "A quantidade de clientes ultrapassou a capacidade recomendada.", SeveridadeAlerta.Alta, entrada?.Id, "Limitar entrada e ativar checkout secundario.", 0);
+        var porta = atuadores.FirstOrDefault(x => x.Tipo == TipoAtuador.PortaAutomatica); if (porta is not null) AplicarAcaoAtuador(estado.Id, porta, "Entrada limitada");
+    }
+
+    private void AplicarCenarioFalhaGeladeira(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<AtuadorLoja> atuadores, List<SensorLoja> sensores)
+    {
+        var geladeira = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Geladeira);
+        if (geladeira is null) return;
+        geladeira.TemperaturaCelsius = 12;
+        geladeira.ConsumoEnergiaKwh = 4.9m;
+        geladeira.Status = StatusZona.Critico;
+        geladeira.RiscoAtual = "Risco de perda de produtos pereciveis.";
+        estado.PerdaFinanceiraEstimada += 240;
+        CriarAlerta(estado.Id, "Temperatura critica na geladeira", "Temperatura ultrapassou o limite seguro para pereciveis.", SeveridadeAlerta.Critica, geladeira.Id, "Ativar refrigeracao maxima e verificar equipamento.", 240);
+        var refri = atuadores.FirstOrDefault(x => x.Tipo == TipoAtuador.Refrigeracao); if (refri is not null) AplicarAcaoAtuador(estado.Id, refri, "Refrigeracao maxima");
+        var sensor = sensores.FirstOrDefault(x => x.Tipo == TipoSensor.Temperatura); if (sensor is not null) RegistrarHistoricoLeitura(estado.Id, sensor, geladeira, 12, "Cenario de falha da geladeira");
+    }
+
+    private void AplicarCenarioCheckoutForaDoAr(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<AtuadorLoja> atuadores, List<SensorLoja> sensores)
+    {
+        var checkout = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Checkout);
+        if (checkout is null) return;
+        checkout.Status = StatusZona.Manutencao;
+        checkout.RiscoAtual = "Checkout indisponivel para pagamentos.";
+        estado.PerdaFinanceiraEstimada += 80;
+        CriarAlerta(estado.Id, "Checkout fora do ar", "Terminal de autoatendimento apresentou falha operacional.", SeveridadeAlerta.Alta, checkout.Id, "Colocar checkout em manutencao e limitar entrada.", 80);
+        var at = atuadores.FirstOrDefault(x => x.Tipo == TipoAtuador.Checkout); if (at is not null) AplicarAcaoAtuador(estado.Id, at, "Modo manutencao");
+    }
+
+    private void AplicarCenarioDivergenciaPagamento(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<ProdutoOperacional> produtos, List<AtuadorLoja> atuadores, List<SensorLoja> sensores)
+    {
+        var bebidas = BuscarZonaPorNome(zonas, "Bebidas");
+        if (bebidas is not null)
+        {
+            bebidas.Status = StatusZona.Critico;
+            bebidas.EstoqueFisico = Math.Max(0, (bebidas.EstoqueFisico ?? 0) - 2);
+            bebidas.RiscoAtual = "Divergencia entre estoque esperado e fisico.";
+        }
+        var produto = produtos.FirstOrDefault(x => x.Categoria == "Bebidas");
+        if (produto is not null)
+        {
+            produto.PerdidosHoje += 2;
+            produto.EstoqueAtual = Math.Max(0, produto.EstoqueAtual - 2);
+            estado.PerdaFinanceiraEstimada += produto.PrecoVenda * 2;
+        }
+        CriarAlerta(estado.Id, "Divergencia entre retirada e pagamento", "Sensor indicou retirada maior que pagamento registrado.", SeveridadeAlerta.Critica, bebidas?.Id, "Revisar eventos do checkout e conferir estoque fisico.", produto?.PrecoVenda * 2 ?? 18.5m);
+    }
+
+    private void AplicarCenarioPicoEnergia(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<AtuadorLoja> atuadores, List<SensorLoja> sensores)
+    {
+        estado.ConsumoEnergiaTotalKwh = 9.8m;
+        estado.CustoEnergiaEstimadoHoje = 9.8m * 0.92m;
+        var circulacao = zonas.FirstOrDefault(x => x.Tipo == TipoZona.Circulacao);
+        if (circulacao is not null) { circulacao.Status = StatusZona.Atencao; circulacao.ConsumoEnergiaKwh = 9.8m; circulacao.RiscoAtual = "Consumo energetico acima do padrao."; }
+        CriarAlerta(estado.Id, "Consumo energetico anormal", "Consumo da loja esta acima do comportamento esperado.", SeveridadeAlerta.Media, circulacao?.Id, "Ativar modo economico e verificar equipamentos.", 35);
+        var luz = atuadores.FirstOrDefault(x => x.Tipo == TipoAtuador.Iluminacao); if (luz is not null) AplicarAcaoAtuador(estado.Id, luz, "Modo economico");
+    }
+
+    private void AplicarCenarioEstoqueCritico(EstadoGemeoDigital estado, List<ZonaLoja> zonas, List<ProdutoOperacional> produtos, List<AtuadorLoja> atuadores, List<SensorLoja> sensores)
+    {
+        var bebidas = BuscarZonaPorNome(zonas, "Bebidas");
+        foreach (var p in produtos.Where(x => x.Categoria == "Bebidas"))
+        {
+            p.EstoqueAtual = Math.Min(p.EstoqueAtual, 5);
+            p.AtualizadoEm = DateTime.UtcNow;
+        }
+        if (bebidas is not null) { bebidas.EstoqueFisico = produtos.Where(p => p.Categoria == "Bebidas").Sum(p => p.EstoqueAtual); bebidas.Status = StatusZona.Atencao; bebidas.RiscoAtual = "Estoque abaixo do minimo operacional."; }
+        CriarAlerta(estado.Id, "Estoque critico de bebidas", "Prateleira de bebidas esta abaixo do nivel recomendado.", SeveridadeAlerta.Media, bebidas?.Id, "Repor bebidas antes do proximo pico de fluxo.", 0);
+    }
+
+    // Tenta salvar com politica de retentativa e merge simples para conflitos de concorrencia otimista
+    private void SalvarComRetentativas(int maxAttempts = 3)
+    {
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                _db.SaveChanges();
+                return;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < maxAttempts)
+            {
+                foreach (var entry in ex.Entries.ToList())
+                {
+                    var dbValues = entry.GetDatabaseValues();
+                    if (dbValues == null)
+                    {
+                        // Registro foi removido no DB - desanexa a entidade local
+                        entry.State = EntityState.Detached;
+                        continue;
+                    }
+
+                    // Captura valores originais carregados para cálculo de delta
+                    var origValues = new Dictionary<string, object?>();
+                    foreach (var p in entry.OriginalValues.Properties)
+                        origValues[p.Name] = entry.OriginalValues[p.Name];
+
+                    // Valores do DB atuais
+                    var dbValsLookup = new Dictionary<string, object?>();
+                    foreach (var p in dbValues.Properties)
+                        dbValsLookup[p.Name] = dbValues[p.Name];
+
+                    // Define OriginalValues para o estado atual do DB
+                    entry.OriginalValues.SetValues(dbValues);
+
+                    // Para cada propriedade, aplica politica de merge simples
+                    foreach (var prop in entry.CurrentValues.Properties)
+                    {
+                        var name = prop.Name;
+                        var orig = origValues.ContainsKey(name) ? origValues[name] : null;
+                        var curr = entry.CurrentValues[name];
+                        var dbVal = dbValsLookup.ContainsKey(name) ? dbValsLookup[name] : null;
+
+                        object? merged = curr ?? dbVal;
+
+                        if (orig != null && curr != null && dbVal != null)
+                        {
+                            var type = prop.ClrType;
+                            if (type == typeof(int) || type == typeof(long) || type == typeof(decimal) || type == typeof(double) || type == typeof(float))
+                            {
+                                try
+                                {
+                                    var o = Convert.ToDecimal(orig);
+                                    var c = Convert.ToDecimal(curr);
+                                    var d = Convert.ToDecimal(dbVal);
+                                    var result = d + (c - o);
+                                    merged = Convert.ChangeType(result, type);
+                                }
+                                catch
+                                {
+                                    merged = curr;
+                                }
+                            }
+                            else
+                            {
+                                // client wins para valores nao numericos
+                                merged = curr;
+                            }
+                        }
+
+                        try
+                        {
+                            entry.CurrentValues[name] = merged;
+                        }
+                        catch
+                        {
+                            // se nao for possivel atribuir, ignorar e deixar valor do cliente
+                            entry.CurrentValues[name] = entry.CurrentValues[name];
+                        }
+                    }
+                }
+
+                // tentar novamente
+                continue;
+            }
+        }
+
+        throw new DbUpdateConcurrencyException("Falha ao persistir alterações após múltiplas tentativas devido a conflitos de concorrência.");
+    }
+}

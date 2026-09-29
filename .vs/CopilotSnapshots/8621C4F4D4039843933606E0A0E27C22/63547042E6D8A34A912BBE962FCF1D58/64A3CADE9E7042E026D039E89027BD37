@@ -1,0 +1,538 @@
+﻿using Microsoft.EntityFrameworkCore;
+using SmartStoreTwinApi.Domain.Entities;
+using SmartStoreTwinApi.Domain.Enums;
+using SmartStoreTwinApi.Infrastructure.Persistence;
+
+namespace SmartStoreTwinApi.Application;
+
+public class EstadoGemeoStore
+{
+    private readonly AppDbContext _db;
+    private EstadoGemeoDigital _estado = new EstadoGemeoDigital();
+
+    public EstadoGemeoStore(AppDbContext db)
+    {
+        _db = db;
+    }
+
+    public Guid ObterEstadoId() => _estado.Id;
+
+    public EstadoGemeoDigital Obter()
+    {
+        return ObterSnapshot();
+    }
+
+    public EstadoGemeoDigital ObterSnapshot()
+    {
+        GarantirEstadoInicial();
+
+        var estadoId = _db.EstadosGemeoDigital
+            .AsNoTracking()
+            .OrderBy(x => x.AtualizadoEm)
+            .Select(x => x.Id)
+            .First();
+
+        var estado = _db.EstadosGemeoDigital
+            .AsNoTracking()
+            .Where(x => x.Id == estadoId)
+            .Include(x => x.Zonas)
+            .Include(x => x.Sensores)
+            .Include(x => x.Atuadores)
+            .Include(x => x.Alertas.OrderByDescending(a => a.CriadoEm).Take(80))
+            .Include(x => x.ProdutosOperacionais)
+            .Include(x => x.LeiturasSensores.OrderByDescending(l => l.CriadoEm).Take(300))
+            .Include(x => x.RotinasAutomaticas)
+            .Include(x => x.ClientesSimulados.Where(c => c.Etapa != "Finalizado").OrderByDescending(c => c.CriadoEm).Take(20))
+                .ThenInclude(x => x.Itens)
+            .Include(x => x.RelatorioGerencial)
+                .ThenInclude(x => x!.RecomendacoesCompra)
+            .Include(x => x.LinhaDoTempo.OrderByDescending(e => e.CriadoEm).Take(150))
+            .AsSplitQuery()
+            .First();
+
+        estado.Zonas = estado.Zonas.OrderBy(x => x.Nome).ToList();
+        estado.Sensores = estado.Sensores.OrderBy(x => x.Nome).ToList();
+        estado.Atuadores = estado.Atuadores.OrderBy(x => x.Nome).ToList();
+        estado.ProdutosOperacionais = estado.ProdutosOperacionais.OrderBy(x => x.Categoria).ThenBy(x => x.Nome).ToList();
+        estado.RotinasAutomaticas = estado.RotinasAutomaticas.OrderBy(x => x.Nome).ToList();
+        estado.LeiturasSensores = estado.LeiturasSensores.OrderByDescending(x => x.CriadoEm).ToList();
+        estado.LinhaDoTempo = estado.LinhaDoTempo.OrderByDescending(x => x.CriadoEm).ToList();
+        estado.Alertas = estado.Alertas.OrderByDescending(x => x.CriadoEm).ToList();
+
+        return estado;
+    }
+
+    public EstadoGemeoDigital Reiniciar()
+    {
+        _estado = new EstadoGemeoDigital();
+        return _estado;
+    }
+
+    public void Salvar()
+    {
+        _db.SaveChanges();
+    }
+
+    public void Aplicar(EstadoGemeoDigital estado)
+    {
+        _estado = estado;
+    }
+
+    private void GarantirEstadoInicial()
+    {
+        if (_db.EstadosGemeoDigital.AsNoTracking().Any())
+            return;
+
+        var novoEstado = CriarEstadoInicial();
+        _db.EstadosGemeoDigital.Add(novoEstado);
+        _db.SaveChanges();
+    }
+
+    private static EstadoGemeoDigital CriarEstadoInicial()
+    {
+        var entrada = new ZonaLoja
+        {
+            Nome = "Entrada / Saida",
+            Tipo = TipoZona.Entrada,
+            Status = StatusZona.Normal
+        };
+
+        var bebidas = new ZonaLoja
+        {
+            Nome = "Prateleira de Bebidas",
+            Tipo = TipoZona.Prateleira,
+            Status = StatusZona.Normal,
+            EstoqueEsperado = 72,
+            EstoqueFisico = 72
+        };
+
+        var snacks = new ZonaLoja
+        {
+            Nome = "Prateleira de Snacks",
+            Tipo = TipoZona.Prateleira,
+            Status = StatusZona.Normal,
+            EstoqueEsperado = 63,
+            EstoqueFisico = 63
+        };
+
+        var geladeira = new ZonaLoja
+        {
+            Nome = "Geladeira / Freezer",
+            Tipo = TipoZona.Geladeira,
+            Status = StatusZona.Normal,
+            EstoqueEsperado = 43,
+            EstoqueFisico = 43,
+            TemperaturaCelsius = 4,
+            ConsumoEnergiaKwh = 2.2m
+        };
+
+        var checkout = new ZonaLoja
+        {
+            Nome = "Checkout Autoatendimento",
+            Tipo = TipoZona.Checkout,
+            Status = StatusZona.Normal
+        };
+
+        var circulacao = new ZonaLoja
+        {
+            Nome = "Area de Circulacao",
+            Tipo = TipoZona.Circulacao,
+            Status = StatusZona.Normal,
+            ConsumoEnergiaKwh = 2.6m
+        };
+
+        var painel = new ZonaLoja
+        {
+            Nome = "Painel Digital",
+            Tipo = TipoZona.PainelDigital,
+            Status = StatusZona.Normal
+        };
+
+        var zonas = new List<ZonaLoja>
+        {
+            entrada,
+            bebidas,
+            snacks,
+            geladeira,
+            checkout,
+            circulacao,
+            painel
+        };
+
+        var sensores = CriarSensores(entrada, bebidas, snacks, geladeira, checkout, circulacao);
+
+        var estado = new EstadoGemeoDigital
+        {
+            NomeLoja = "Smart Store Twin - Loja Autonoma 24h",
+            SaudeOperacional = 100,
+            PessoasNaLoja = 0,
+            CapacidadeRecomendada = 12,
+            ConsumoEnergiaTotalKwh = 4.8m,
+            PerdaFinanceiraEstimada = 0,
+            SimulacaoAtiva = false,
+            PerfilSimulacao = "Operacao normal",
+            MultiplicadorFluxo = 1m,
+            FalhaGeladeiraAtiva = false,
+            CheckoutIndisponivel = false,
+            PicoEnergiaAtivo = false,
+            AltaDemandaBebidas = false,
+            DivergenciaPagamentosAtiva = false,
+            TickAtual = 0,
+            Zonas = zonas,
+            ProdutosOperacionais = CriarProdutosOperacionais(bebidas, snacks, geladeira),
+            RotinasAutomaticas = CriarRotinasAutomaticas(),
+            RelatorioGerencial = new RelatorioGerencialDia
+            {
+                Diagnostico = "Relatorio ainda nao gerado. Execute a simulacao ou feche o dia para obter recomendacoes.",
+                ConsumoEnergiaKwh = 4.8m,
+                CustoEnergiaEstimado = 4.8m * 0.92m
+            },
+            Sensores = sensores,
+            Atuadores = CriarAtuadores(entrada, geladeira, checkout, circulacao, painel),
+            LinhaDoTempo = new List<EventoLinhaDoTempo>
+            {
+                new()
+                {
+                    Tipo = TipoEventoLinhaDoTempo.EstadoAlterado,
+                    Descricao = "Gemeo digital inicializado com estado persistido em banco PostgreSQL.",
+                    Origem = "Sistema"
+                },
+                new()
+                {
+                    Tipo = TipoEventoLinhaDoTempo.LeituraSensor,
+                    Descricao = "Historico ficticio de sensores carregado para alimentar as decisoes do gemeo digital.",
+                    Origem = "Seed de historico"
+                }
+            }
+        };
+
+        estado.LeiturasSensores = CriarHistoricoLeiturasSensores(estado);
+        AplicarHistoricoComoBaseDeDecisao(estado);
+
+        return estado;
+    }
+
+    private static List<SensorLoja> CriarSensores(
+        ZonaLoja entrada,
+        ZonaLoja bebidas,
+        ZonaLoja snacks,
+        ZonaLoja geladeira,
+        ZonaLoja checkout,
+        ZonaLoja circulacao)
+    {
+        return new List<SensorLoja>
+        {
+            new()
+            {
+                Nome = "Sensor de Presenca - Entrada",
+                Tipo = TipoSensor.Presenca,
+                ZonaId = entrada.Id,
+                ConfiabilidadePercentual = 97
+            },
+            new()
+            {
+                Nome = "Sensor de Porta - Entrada",
+                Tipo = TipoSensor.Porta,
+                ZonaId = entrada.Id,
+                ConfiabilidadePercentual = 95
+            },
+            new()
+            {
+                Nome = "Sensor de Peso - Bebidas",
+                Tipo = TipoSensor.PesoPrateleira,
+                ZonaId = bebidas.Id,
+                ConfiabilidadePercentual = 96
+            },
+            new()
+            {
+                Nome = "Sensor de Peso - Snacks",
+                Tipo = TipoSensor.PesoPrateleira,
+                ZonaId = snacks.Id,
+                ConfiabilidadePercentual = 96
+            },
+            new()
+            {
+                Nome = "Sensor de Temperatura - Geladeira",
+                Tipo = TipoSensor.Temperatura,
+                ZonaId = geladeira.Id,
+                ConfiabilidadePercentual = 98
+            },
+            new()
+            {
+                Nome = "Sensor de Energia Geral",
+                Tipo = TipoSensor.Energia,
+                ZonaId = circulacao.Id,
+                ConfiabilidadePercentual = 94
+            },
+            new()
+            {
+                Nome = "Sensor de Status - Checkout",
+                Tipo = TipoSensor.Checkout,
+                ZonaId = checkout.Id,
+                ConfiabilidadePercentual = 99
+            }
+        };
+    }
+
+    private static List<AtuadorLoja> CriarAtuadores(
+        ZonaLoja entrada,
+        ZonaLoja geladeira,
+        ZonaLoja checkout,
+        ZonaLoja circulacao,
+        ZonaLoja painel)
+    {
+        return new List<AtuadorLoja>
+        {
+            new()
+            {
+                Nome = "Atuador da Porta Automatica",
+                Tipo = TipoAtuador.PortaAutomatica,
+                ZonaId = entrada.Id,
+                Status = "Liberada"
+            },
+            new()
+            {
+                Nome = "Atuador de Refrigeracao",
+                Tipo = TipoAtuador.Refrigeracao,
+                ZonaId = geladeira.Id,
+                Status = "Normal"
+            },
+            new()
+            {
+                Nome = "Atuador de Iluminacao",
+                Tipo = TipoAtuador.Iluminacao,
+                ZonaId = circulacao.Id,
+                Status = "Normal"
+            },
+            new()
+            {
+                Nome = "Atuador do Checkout",
+                Tipo = TipoAtuador.Checkout,
+                ZonaId = checkout.Id,
+                Status = "Operacional"
+            },
+            new()
+            {
+                Nome = "Atuador do Painel Digital",
+                Tipo = TipoAtuador.PainelDigital,
+                ZonaId = painel.Id,
+                Status = "Mensagem padrao"
+            }
+        };
+    }
+
+    private static List<ProdutoOperacional> CriarProdutosOperacionais(
+        ZonaLoja bebidas,
+        ZonaLoja snacks,
+        ZonaLoja geladeira)
+    {
+        return new List<ProdutoOperacional>
+        {
+            new()
+            {
+                Nome = "Agua mineral 500ml",
+                Categoria = "Bebidas",
+                ZonaId = bebidas.Id,
+                ZonaNome = bebidas.Nome,
+                EstoqueAtual = 40,
+                EstoqueMinimo = 12,
+                EstoqueMaximo = 60,
+                PrecoVenda = 4.50m,
+                CustoReposicao = 2.20m,
+                VendidosHoje = 7,
+                RetiradosHoje = 7
+            },
+            new()
+            {
+                Nome = "Refrigerante lata",
+                Categoria = "Bebidas",
+                ZonaId = bebidas.Id,
+                ZonaNome = bebidas.Nome,
+                EstoqueAtual = 32,
+                EstoqueMinimo = 10,
+                EstoqueMaximo = 48,
+                PrecoVenda = 6.50m,
+                CustoReposicao = 3.10m,
+                VendidosHoje = 4,
+                RetiradosHoje = 4
+            },
+            new()
+            {
+                Nome = "Salgadinho pacote",
+                Categoria = "Snacks",
+                ZonaId = snacks.Id,
+                ZonaNome = snacks.Nome,
+                EstoqueAtual = 35,
+                EstoqueMinimo = 10,
+                EstoqueMaximo = 50,
+                PrecoVenda = 5.90m,
+                CustoReposicao = 2.80m,
+                VendidosHoje = 5,
+                RetiradosHoje = 5
+            },
+            new()
+            {
+                Nome = "Barra de chocolate",
+                Categoria = "Snacks",
+                ZonaId = snacks.Id,
+                ZonaNome = snacks.Nome,
+                EstoqueAtual = 28,
+                EstoqueMinimo = 8,
+                EstoqueMaximo = 42,
+                PrecoVenda = 4.90m,
+                CustoReposicao = 2.30m,
+                VendidosHoje = 3,
+                RetiradosHoje = 3
+            },
+            new()
+            {
+                Nome = "Sanduiche natural",
+                Categoria = "Refrigerados",
+                ZonaId = geladeira.Id,
+                ZonaNome = geladeira.Nome,
+                EstoqueAtual = 18,
+                EstoqueMinimo = 8,
+                EstoqueMaximo = 30,
+                PrecoVenda = 12.90m,
+                CustoReposicao = 6.80m,
+                VendidosHoje = 2,
+                RetiradosHoje = 2
+            },
+            new()
+            {
+                Nome = "Iogurte proteico",
+                Categoria = "Refrigerados",
+                ZonaId = geladeira.Id,
+                ZonaNome = geladeira.Nome,
+                EstoqueAtual = 25,
+                EstoqueMinimo = 10,
+                EstoqueMaximo = 36,
+                PrecoVenda = 8.90m,
+                CustoReposicao = 4.10m,
+                VendidosHoje = 3,
+                RetiradosHoje = 3
+            }
+        };
+    }
+
+    private static List<RotinaAutomatica> CriarRotinasAutomaticas()
+    {
+        return new List<RotinaAutomatica>
+        {
+            new()
+            {
+                Nome = "Otimizacao energetica por fluxo",
+                Descricao = "Ajusta iluminacao e refrigeracao para modo economico quando a loja esta com baixo movimento."
+            },
+            new()
+            {
+                Nome = "Previsao de ruptura de estoque",
+                Descricao = "Calcula em quantas horas cada produto pode acabar considerando a demanda simulada e historica."
+            },
+            new()
+            {
+                Nome = "Recomendacao de compras",
+                Descricao = "Sugere compras para o gerente com base em estoque minimo, vendas, perdas e historico do dia."
+            },
+            new()
+            {
+                Nome = "Controle termico inteligente",
+                Descricao = "Acompanha a temperatura da geladeira e decide entre modo economico ou refrigeracao maxima."
+            },
+            new()
+            {
+                Nome = "Conciliacao fisico x digital",
+                Descricao = "Compara produtos retirados fisicamente com produtos pagos no checkout."
+            }
+        };
+    }
+
+    private static List<LeituraSensorHistorico> CriarHistoricoLeiturasSensores(EstadoGemeoDigital estado)
+    {
+        var leituras = new List<LeituraSensorHistorico>();
+        var inicio = DateTime.UtcNow.AddHours(-8);
+
+        for (var i = 0; i < 32; i++)
+        {
+            var horario = inicio.AddMinutes(i * 15);
+            var ciclo = i % 12;
+            var pessoas = ciclo switch
+            {
+                <= 2 => 1 + ciclo,
+                <= 5 => 5 + ciclo,
+                <= 8 => 9 + (ciclo - 5),
+                _ => 3
+            };
+
+            foreach (var sensor in estado.Sensores)
+            {
+                var zona = estado.Zonas.First(x => x.Id == sensor.ZonaId);
+                var valor = sensor.Tipo switch
+                {
+                    TipoSensor.Presenca => pessoas,
+                    TipoSensor.Temperatura => 4 + (i % 7 == 0 ? 2.2m : i % 11 == 0 ? 3.5m : 0.4m),
+                    TipoSensor.Energia => pessoas <= 2 ? 3.9m : pessoas >= 9 ? 7.9m : 5.2m,
+                    TipoSensor.PesoPrateleira when zona.Nome.Contains("Bebidas") => Math.Max(30, 72 - i),
+                    TipoSensor.PesoPrateleira when zona.Nome.Contains("Snacks") => Math.Max(26, 63 - (i / 2)),
+                    TipoSensor.Checkout => pessoas >= 8 ? 1 : 0,
+                    TipoSensor.Porta => 1,
+                    _ => 0
+                };
+
+                leituras.Add(new LeituraSensorHistorico
+                {
+                    SensorId = sensor.Id,
+                    SensorNome = sensor.Nome,
+                    TipoSensor = sensor.Tipo,
+                    ZonaId = zona.Id,
+                    ZonaNome = zona.Nome,
+                    Valor = valor,
+                    Unidade = ObterUnidadeSensor(sensor.Tipo),
+                    Observacao = "Seed historico: comportamento das ultimas 8 horas para apoiar as rotinas do gemeo digital.",
+                    CriadoEm = horario
+                });
+            }
+        }
+
+        return leituras.OrderByDescending(x => x.CriadoEm).ToList();
+    }
+
+    private static void AplicarHistoricoComoBaseDeDecisao(EstadoGemeoDigital estado)
+    {
+        var leiturasRecentes = estado.LeiturasSensores
+            .Where(x => x.CriadoEm >= DateTime.UtcNow.AddHours(-2))
+            .ToList();
+
+        var mediaEnergia = leiturasRecentes
+            .Where(x => x.TipoSensor == TipoSensor.Energia)
+            .Select(x => x.Valor)
+            .DefaultIfEmpty(estado.ConsumoEnergiaTotalKwh)
+            .Average();
+
+        var mediaFluxo = leiturasRecentes
+            .Where(x => x.TipoSensor == TipoSensor.Presenca)
+            .Select(x => x.Valor)
+            .DefaultIfEmpty(estado.PessoasNaLoja)
+            .Average();
+
+        estado.ConsumoEnergiaTotalKwh = Math.Round(mediaEnergia, 2);
+        estado.PessoasNaLoja = (int)Math.Round(mediaFluxo);
+        estado.ReceitaEstimadaHoje = estado.ProdutosOperacionais.Sum(x => x.ReceitaHoje);
+        estado.ProdutosVendidosHoje = estado.ProdutosOperacionais.Sum(x => x.VendidosHoje);
+        estado.CustoEnergiaEstimadoHoje = Math.Round(estado.ConsumoEnergiaTotalKwh * 0.92m, 2);
+    }
+
+    private static string ObterUnidadeSensor(TipoSensor tipo)
+    {
+        return tipo switch
+        {
+            TipoSensor.Presenca => "pessoas",
+            TipoSensor.Temperatura => "°C",
+            TipoSensor.Energia => "kWh",
+            TipoSensor.PesoPrateleira => "un.",
+            TipoSensor.Checkout => "status",
+            TipoSensor.Porta => "status",
+            _ => "valor"
+        };
+    }
+}

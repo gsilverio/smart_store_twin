@@ -1,0 +1,68 @@
+﻿using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
+using SmartStoreTwinApi.Application;
+using SmartStoreTwinApi.Infrastructure.Persistence;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+    });
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+builder.Services.AddAuthorization();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowAnyOrigin();
+    });
+});
+
+var connectionString = builder.Configuration.GetConnectionString("SmartStoreTwin")
+    ?? throw new InvalidOperationException("ConnectionStrings:SmartStoreTwin nao configurada no appsettings.");
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+{
+    options.UseNpgsql(connectionString);
+});
+
+builder.Services.AddScoped<EstadoGemeoStore>();
+builder.Services.AddScoped<MotorGemeoDigital>();
+builder.Services.AddSingleton<OperacaoGemeoDigitalLock>();
+
+var app = builder.Build();
+
+if (app.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
+
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Gemeo Digital Loja API v1");
+    options.RoutePrefix = "swagger";
+});
+
+app.UseHttpsRedirection();
+
+app.UseCors("Frontend");
+
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.Run();

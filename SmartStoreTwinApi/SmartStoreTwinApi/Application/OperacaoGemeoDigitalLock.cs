@@ -1,0 +1,20 @@
+namespace SmartStoreTwinApi.Application;
+
+public class OperacaoGemeoDigitalLock
+{
+    private readonly SemaphoreSlim _semaforo = new(1, 1);
+
+    public T Executar<T>(Func<T> operacao)
+    {
+        _semaforo.Wait();
+
+        try
+        {
+            return operacao();
+        }
+        finally
+        {
+            _semaforo.Release();
+        }
+    }
+}

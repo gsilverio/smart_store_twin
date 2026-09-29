@@ -1,0 +1,127 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.EntityFrameworkCore;
+
+namespace SmartStoreTwinApi.Infrastructure.Persistence
+{
+    public static class DbContextExtensions
+    {
+        // Extensao para salvar com retentativas e resolver conflitos de concorrencia otimistico
+        public static void SalvarComRetentativas(this DbContext db, int maxAttempts = 3)
+        {
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    db.SaveChanges();
+                    return;
+                }
+                catch (DbUpdateConcurrencyException ex) when (attempt < maxAttempts)
+                {
+                    // Tenta resolver conflitos por entrada
+                    foreach (var entry in ex.Entries.ToList())
+                    {
+                        var dbValues = entry.GetDatabaseValues();
+                        if (dbValues == null)
+                        {
+                            // Registro foi removido no DB - desanexa a entidade local
+                            entry.State = EntityState.Detached;
+                            continue;
+                        }
+
+                        // Captura valores originais carregados para calculo de delta
+                        var origValues = new Dictionary<string, object?>();
+                        foreach (var p in entry.OriginalValues.Properties)
+                            origValues[p.Name] = entry.OriginalValues[p.Name];
+
+                        var dbValsLookup = new Dictionary<string, object?>();
+                        foreach (var p in dbValues.Properties)
+                            dbValsLookup[p.Name] = dbValues[p.Name];
+
+                        // Atualiza OriginalValues para o estado atual do DB
+                        entry.OriginalValues.SetValues(dbValues);
+
+                        // Para propriedades escalares, tenta aplicar merge simples
+                        foreach (var prop in entry.CurrentValues.Properties)
+                        {
+                            var name = prop.Name;
+                            var orig = origValues.ContainsKey(name) ? origValues[name] : null;
+                            var curr = entry.CurrentValues[name];
+                            var dbVal = dbValsLookup.ContainsKey(name) ? dbValsLookup[name] : null;
+
+                            object? merged = curr ?? dbVal;
+
+                            if (orig != null && curr != null && dbVal != null)
+                            {
+                                var type = prop.ClrType;
+                                if (type == typeof(int) || type == typeof(long) || type == typeof(decimal) || type == typeof(double) || type == typeof(float))
+                                {
+                                    try
+                                    {
+                                        var o = Convert.ToDecimal(orig);
+                                        var c = Convert.ToDecimal(curr);
+                                        var d = Convert.ToDecimal(dbVal);
+                                        var result = d + (c - o);
+                                        merged = Convert.ChangeType(result, type);
+                                    }
+                                    catch
+                                    {
+                                        merged = curr;
+                                    }
+                                }
+                                else
+                                {
+                                    // client wins para valores nao numericos
+                                    merged = curr;
+                                }
+                            }
+
+                            try
+                            {
+                                entry.CurrentValues[name] = merged;
+                            }
+                            catch
+                            {
+                                // ignora se nao for possivel atribuir
+                            }
+                        }
+                    }
+
+                    // continua para proxima tentativa
+                    continue;
+                }
+                catch (DbUpdateConcurrencyException ex) when (attempt == maxAttempts)
+                {
+                    // Ultima tentativa: para cada entrada conflitante, tentaremos desanexar para permitir persistencia do restante
+                    foreach (var entry in ex.Entries.ToList())
+                    {
+                        var dbValues = entry.GetDatabaseValues();
+                        if (dbValues == null)
+                        {
+                            entry.State = EntityState.Detached;
+                            continue;
+                        }
+
+                        // Se for modificado, preferimos desanexar (evita falha completa).
+                        entry.State = EntityState.Detached;
+                    }
+
+                    // Tenta salvar novamente as entradas restantes
+                    try
+                    {
+                        db.SaveChanges();
+                        return;
+                    }
+                    catch (DbUpdateConcurrencyException)
+                    {
+                        // Se ainda falhar, relança a exceção original para diagnóstico
+                        throw;
+                    }
+                }
+            }
+
+            throw new DbUpdateConcurrencyException("Falha ao persistir alteracoes apos multiplas tentativas devido a conflitos de concorrencia.");
+        }
+    }
+}

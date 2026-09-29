@@ -1,0 +1,297 @@
+[
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "ResolverAlerta",
+    "RelativePath": "api/gemeo-digital/alertas/{alertaId}/resolver",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "alertaId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "AcionarAtuador",
+    "RelativePath": "api/gemeo-digital/atuadores/{atuadorId}/acoes",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "atuadorId",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "SmartStoreTwinApi.Controllers.AcaoAtuadorRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "SimularCenario",
+    "RelativePath": "api/gemeo-digital/cenarios/{cenario}",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "cenario",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "ObterLeiturasSensores",
+    "RelativePath": "api/gemeo-digital/dados/leituras-sensores",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "take",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SmartStoreTwinApi.Domain.Entities.LeituraSensorHistorico, SmartStoreTwinApi, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "ObterProdutosOperacionais",
+    "RelativePath": "api/gemeo-digital/dados/produtos",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SmartStoreTwinApi.Domain.Entities.ProdutoOperacional, SmartStoreTwinApi, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "ObterRotinasAutomaticas",
+    "RelativePath": "api/gemeo-digital/dados/rotinas",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[SmartStoreTwinApi.Domain.Entities.RotinaAutomatica, SmartStoreTwinApi, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "ObterEstado",
+    "RelativePath": "api/gemeo-digital/estado",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "Reiniciar",
+    "RelativePath": "api/gemeo-digital/reiniciar",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "GerarRelatorioFechamentoDia",
+    "RelativePath": "api/gemeo-digital/relatorios/fechamento-dia",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "RegistrarLeituraSensor",
+    "RelativePath": "api/gemeo-digital/sensores/leituras",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "SmartStoreTwinApi.Controllers.LeituraSensorRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "IniciarSimulacao",
+    "RelativePath": "api/gemeo-digital/simulacao/iniciar",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "PararSimulacao",
+    "RelativePath": "api/gemeo-digital/simulacao/parar",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "SmartStoreTwinApi.Controllers.GemeoDigitalController",
+    "Method": "ExecutarTickSimulacao",
+    "RelativePath": "api/gemeo-digital/simulacao/tick",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "SmartStoreTwinApi.Domain.Entities.EstadoGemeoDigital",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  }
+]

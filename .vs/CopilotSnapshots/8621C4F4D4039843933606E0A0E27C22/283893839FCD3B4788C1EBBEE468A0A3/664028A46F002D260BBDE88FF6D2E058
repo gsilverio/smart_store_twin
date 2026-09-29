@@ -1,0 +1,93 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.EntityFrameworkCore;
+
+namespace SmartStoreTwinApi.Infrastructure.Persistence
+{
+    public static class DbContextExtensions
+    {
+        // Extensao para salvar com retentativas e resolver conflitos de concorrencia otimistico
+        public static void SalvarComRetentativas(this DbContext db, int maxAttempts = 3)
+        {
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    db.SaveChanges();
+                    return;
+                }
+                catch (DbUpdateConcurrencyException ex) when (attempt < maxAttempts)
+                {
+                    foreach (var entry in ex.Entries.ToList())
+                    {
+                        var dbValues = entry.GetDatabaseValues();
+                        if (dbValues == null)
+                        {
+                            // Registro foi removido no DB - desanexa a entidade local
+                            entry.State = EntityState.Detached;
+                            continue;
+                        }
+
+                        var origValues = new Dictionary<string, object?>();
+                        foreach (var p in entry.OriginalValues.Properties)
+                            origValues[p.Name] = entry.OriginalValues[p.Name];
+
+                        var dbValsLookup = new Dictionary<string, object?>();
+                        foreach (var p in dbValues.Properties)
+                            dbValsLookup[p.Name] = dbValues[p.Name];
+
+                        entry.OriginalValues.SetValues(dbValues);
+
+                        foreach (var prop in entry.CurrentValues.Properties)
+                        {
+                            var name = prop.Name;
+                            var orig = origValues.ContainsKey(name) ? origValues[name] : null;
+                            var curr = entry.CurrentValues[name];
+                            var dbVal = dbValsLookup.ContainsKey(name) ? dbValsLookup[name] : null;
+
+                            object? merged = curr ?? dbVal;
+
+                            if (orig != null && curr != null && dbVal != null)
+                            {
+                                var type = prop.ClrType;
+                                if (type == typeof(int) || type == typeof(long) || type == typeof(decimal) || type == typeof(double) || type == typeof(float))
+                                {
+                                    try
+                                    {
+                                        var o = Convert.ToDecimal(orig);
+                                        var c = Convert.ToDecimal(curr);
+                                        var d = Convert.ToDecimal(dbVal);
+                                        var result = d + (c - o);
+                                        merged = Convert.ChangeType(result, type);
+                                    }
+                                    catch
+                                    {
+                                        merged = curr;
+                                    }
+                                }
+                                else
+                                {
+                                    merged = curr;
+                                }
+                            }
+
+                            try
+                            {
+                                entry.CurrentValues[name] = merged;
+                            }
+                            catch
+                            {
+                                entry.CurrentValues[name] = entry.CurrentValues[name];
+                            }
+                        }
+                    }
+
+                    continue;
+                }
+            }
+
+            throw new DbUpdateConcurrencyException("Falha ao persistir alteracoes apos multiplas tentativas devido a conflitos de concorrencia.");
+        }
+    }
+}

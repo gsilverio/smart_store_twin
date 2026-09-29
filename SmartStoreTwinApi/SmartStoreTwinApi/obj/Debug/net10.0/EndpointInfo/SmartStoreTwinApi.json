@@ -1,0 +1,1387 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "SmartStoreTwinApi",
+    "version": "1.0"
+  },
+  "paths": {
+    "/api/gemeo-digital/estado": {
+      "get": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/dados/leituras-sensores": {
+      "get": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "parameters": [
+          {
+            "name": "take",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeituraSensorHistorico"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeituraSensorHistorico"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeituraSensorHistorico"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/dados/produtos": {
+      "get": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProdutoOperacional"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProdutoOperacional"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProdutoOperacional"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/dados/rotinas": {
+      "get": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RotinaAutomatica"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RotinaAutomatica"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RotinaAutomatica"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/reiniciar": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/cenarios/{cenario}": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "parameters": [
+          {
+            "name": "cenario",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/atuadores/{atuadorId}/acoes": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "parameters": [
+          {
+            "name": "atuadorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcaoAtuadorRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcaoAtuadorRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcaoAtuadorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/alertas/{alertaId}/resolver": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "parameters": [
+          {
+            "name": "alertaId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/sensores/leituras": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeituraSensorRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeituraSensorRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeituraSensorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/simulacao/iniciar": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/simulacao/parar": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/simulacao/tick": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemeo-digital/relatorios/fechamento-dia": {
+      "post": {
+        "tags": [
+          "GemeoDigital"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoGemeoDigital"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AcaoAtuadorRequest": {
+        "type": "object",
+        "properties": {
+          "acao": {
+            "type": "string",
+            "nullable": true
+          },
+          "origem": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AlertaLoja": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "titulo": {
+            "type": "string",
+            "nullable": true
+          },
+          "descricao": {
+            "type": "string",
+            "nullable": true
+          },
+          "severidade": {
+            "$ref": "#/components/schemas/SeveridadeAlerta"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusAlerta"
+          },
+          "zonaId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "recomendacao": {
+            "type": "string",
+            "nullable": true
+          },
+          "impactoFinanceiroEstimado": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "criadoEm": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvidoEm": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AtuadorLoja": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoAtuador"
+          },
+          "zonaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "ultimaAcao": {
+            "type": "string",
+            "nullable": true
+          },
+          "ultimaAcaoEm": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClienteSimulado": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "codigo": {
+            "type": "string",
+            "nullable": true
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "etapa": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "zonaAtualId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "zonaAtualNome": {
+            "type": "string",
+            "nullable": true
+          },
+          "bebidasSelecionadas": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "snacksSelecionados": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "refrigeradosSelecionados": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalProdutosSelecionados": {
+            "type": "integer",
+            "format": "int32",
+            "readOnly": true
+          },
+          "itens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemClienteSimulado"
+            },
+            "nullable": true
+          },
+          "valorCarrinho": {
+            "type": "number",
+            "format": "double"
+          },
+          "pagamentoConcluido": {
+            "type": "boolean"
+          },
+          "possuiDivergencia": {
+            "type": "boolean"
+          },
+          "criadoEm": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "atualizadoEm": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EstadoGemeoDigital": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nomeLoja": {
+            "type": "string",
+            "nullable": true
+          },
+          "saudeOperacional": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pessoasNaLoja": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "capacidadeRecomendada": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "consumoEnergiaTotalKwh": {
+            "type": "number",
+            "format": "double"
+          },
+          "perdaFinanceiraEstimada": {
+            "type": "number",
+            "format": "double"
+          },
+          "receitaEstimadaHoje": {
+            "type": "number",
+            "format": "double"
+          },
+          "produtosVendidosHoje": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "economiaEnergiaEstimadaKwh": {
+            "type": "number",
+            "format": "double"
+          },
+          "custoEnergiaEstimadoHoje": {
+            "type": "number",
+            "format": "double"
+          },
+          "simulacaoAtiva": {
+            "type": "boolean"
+          },
+          "perfilSimulacao": {
+            "type": "string",
+            "nullable": true
+          },
+          "multiplicadorFluxo": {
+            "type": "number",
+            "format": "double"
+          },
+          "falhaGeladeiraAtiva": {
+            "type": "boolean"
+          },
+          "checkoutIndisponivel": {
+            "type": "boolean"
+          },
+          "picoEnergiaAtivo": {
+            "type": "boolean"
+          },
+          "altaDemandaBebidas": {
+            "type": "boolean"
+          },
+          "divergenciaPagamentosAtiva": {
+            "type": "boolean"
+          },
+          "tickAtual": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ultimoTickEm": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "atualizadoEm": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "zonas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ZonaLoja"
+            },
+            "nullable": true
+          },
+          "sensores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SensorLoja"
+            },
+            "nullable": true
+          },
+          "atuadores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AtuadorLoja"
+            },
+            "nullable": true
+          },
+          "alertas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertaLoja"
+            },
+            "nullable": true
+          },
+          "produtosOperacionais": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProdutoOperacional"
+            },
+            "nullable": true
+          },
+          "leiturasSensores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeituraSensorHistorico"
+            },
+            "nullable": true
+          },
+          "rotinasAutomaticas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RotinaAutomatica"
+            },
+            "nullable": true
+          },
+          "relatorioGerencial": {
+            "$ref": "#/components/schemas/RelatorioGerencialDia"
+          },
+          "clientesSimulados": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClienteSimulado"
+            },
+            "nullable": true
+          },
+          "linhaDoTempo": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventoLinhaDoTempo"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "EventoLinhaDoTempo": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoEventoLinhaDoTempo"
+          },
+          "descricao": {
+            "type": "string",
+            "nullable": true
+          },
+          "origem": {
+            "type": "string",
+            "nullable": true
+          },
+          "criadoEm": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ItemClienteSimulado": {
+        "type": "object",
+        "properties": {
+          "clienteSimuladoId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "produtoId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "produtoNome": {
+            "type": "string",
+            "nullable": true
+          },
+          "categoria": {
+            "type": "string",
+            "nullable": true
+          },
+          "quantidade": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "valorUnitario": {
+            "type": "number",
+            "format": "double"
+          },
+          "valorTotal": {
+            "type": "number",
+            "format": "double",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "LeituraSensorHistorico": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sensorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sensorNome": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipoSensor": {
+            "$ref": "#/components/schemas/TipoSensor"
+          },
+          "zonaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zonaNome": {
+            "type": "string",
+            "nullable": true
+          },
+          "valor": {
+            "type": "number",
+            "format": "double"
+          },
+          "unidade": {
+            "type": "string",
+            "nullable": true
+          },
+          "observacao": {
+            "type": "string",
+            "nullable": true
+          },
+          "criadoEm": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LeituraSensorRequest": {
+        "type": "object",
+        "properties": {
+          "sensorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "valor": {
+            "type": "number",
+            "format": "double"
+          },
+          "observacao": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProdutoOperacional": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "categoria": {
+            "type": "string",
+            "nullable": true
+          },
+          "zonaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zonaNome": {
+            "type": "string",
+            "nullable": true
+          },
+          "estoqueAtual": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "estoqueMinimo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "estoqueMaximo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "precoVenda": {
+            "type": "number",
+            "format": "double"
+          },
+          "custoReposicao": {
+            "type": "number",
+            "format": "double"
+          },
+          "vendidosHoje": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retiradosHoje": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "perdidosHoje": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "receitaHoje": {
+            "type": "number",
+            "format": "double",
+            "readOnly": true
+          },
+          "perdaHoje": {
+            "type": "number",
+            "format": "double",
+            "readOnly": true
+          },
+          "previsaoRupturaHoras": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "sugestaoCompra": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "motivoSugestao": {
+            "type": "string",
+            "nullable": true
+          },
+          "atualizadoEm": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RecomendacaoCompra": {
+        "type": "object",
+        "properties": {
+          "relatorioGerencialDiaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "produto": {
+            "type": "string",
+            "nullable": true
+          },
+          "categoria": {
+            "type": "string",
+            "nullable": true
+          },
+          "estoqueAtual": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "estoqueMinimo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "quantidadeSugerida": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "motivo": {
+            "type": "string",
+            "nullable": true
+          },
+          "custoEstimado": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RelatorioGerencialDia": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "geradoEm": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "produtosVendidos": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "produtosRetirados": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "produtosPerdidos": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "receitaEstimada": {
+            "type": "number",
+            "format": "double"
+          },
+          "perdaEstimada": {
+            "type": "number",
+            "format": "double"
+          },
+          "consumoEnergiaKwh": {
+            "type": "number",
+            "format": "double"
+          },
+          "custoEnergiaEstimado": {
+            "type": "number",
+            "format": "double"
+          },
+          "economiaEnergiaEstimadaKwh": {
+            "type": "number",
+            "format": "double"
+          },
+          "alertasAbertos": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "alertasCriticos": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "diagnostico": {
+            "type": "string",
+            "nullable": true
+          },
+          "recomendacoesCompra": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecomendacaoCompra"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RotinaAutomatica": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "descricao": {
+            "type": "string",
+            "nullable": true
+          },
+          "ativa": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "resultado": {
+            "type": "string",
+            "nullable": true
+          },
+          "acaoExecutada": {
+            "type": "string",
+            "nullable": true
+          },
+          "economiaEnergiaEstimadaKwh": {
+            "type": "number",
+            "format": "double"
+          },
+          "ultimaExecucaoEm": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SensorLoja": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoSensor"
+          },
+          "zonaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ativo": {
+            "type": "boolean"
+          },
+          "confiabilidadePercentual": {
+            "type": "number",
+            "format": "double"
+          },
+          "ultimaLeituraEm": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SeveridadeAlerta": {
+        "enum": [
+          "Baixa",
+          "Media",
+          "Alta",
+          "Critica"
+        ],
+        "type": "string"
+      },
+      "StatusAlerta": {
+        "enum": [
+          "Aberto",
+          "EmAnalise",
+          "Resolvido"
+        ],
+        "type": "string"
+      },
+      "StatusZona": {
+        "enum": [
+          "Normal",
+          "Atencao",
+          "Critico",
+          "Bloqueado",
+          "Manutencao",
+          "ModoEconomico"
+        ],
+        "type": "string"
+      },
+      "TipoAtuador": {
+        "enum": [
+          "PortaAutomatica",
+          "Refrigeracao",
+          "Iluminacao",
+          "Checkout",
+          "PainelDigital"
+        ],
+        "type": "string"
+      },
+      "TipoEventoLinhaDoTempo": {
+        "enum": [
+          "LeituraSensor",
+          "AlertaCriado",
+          "AlertaResolvido",
+          "AcaoAtuador",
+          "CenarioSimulado",
+          "EstadoAlterado",
+          "RecomendacaoGerada"
+        ],
+        "type": "string"
+      },
+      "TipoSensor": {
+        "enum": [
+          "Presenca",
+          "PesoPrateleira",
+          "Temperatura",
+          "Energia",
+          "Checkout",
+          "Porta"
+        ],
+        "type": "string"
+      },
+      "TipoZona": {
+        "enum": [
+          "Entrada",
+          "Prateleira",
+          "Geladeira",
+          "Checkout",
+          "Circulacao",
+          "PainelDigital"
+        ],
+        "type": "string"
+      },
+      "ZonaLoja": {
+        "type": "object",
+        "properties": {
+          "estadoGemeoDigitalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoZona"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusZona"
+          },
+          "estoqueEsperado": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "estoqueFisico": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "temperaturaCelsius": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "consumoEnergiaKwh": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "quantidadePessoas": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "riscoAtual": {
+            "type": "string",
+            "nullable": true
+          },
+          "atualizadoEm": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "GemeoDigital"
+    }
+  ]
+}
